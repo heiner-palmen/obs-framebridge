@@ -1,0 +1,18 @@
+{
+    "name": "obs-framebridge",
+    "version": "1.0.0",
+    "buildNumber": 1,
+    "author": "",
+    "website": "https://github.com/heiner-palmen/obs-framebridge",
+    "email": "",
+    "uiDescription": "OBS plugin that exposes a scene/source frame buffer to Lua scripts for per-frame pixel analysis and image similarity matching.",
+    "category": "plugins",
+    "dependencies": {
+        "obs-studio": {
+            "version": "32.0.4",
+            "repository": "https://github.com/obsproject/obs-studio",
+            "branch": "master",
+            "tagPrefix": ""
+        }
+    }
+}
