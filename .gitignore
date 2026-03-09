@@ -1,0 +1,100 @@
+# Build output
+build/
+out/
+*.so
+*.dll
+*.dylib
+*.o
+*.obj
+*.a
+*.lib
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+CTestTestfile.cmake
+_CPack_Packages/
+
+# CMake generated build artifacts (generators, IDE/project files, binary artifacts)
+# Common generator outputs
+*.sln
+*.vcxproj*
+*.vcxproj.filters
+*.vcxproj.user
+
+# Linker / build artifacts
+*.exp
+*.def
+*.ilk
+*.pdb
+*.lib
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.o
+*.obj
+
+# Build folders created by CMake / generators
+/build/
+Debug/
+Release/
+x64/
+*/Debug/
+*/Release/
+*/x64/
+
+# Misc build artifacts
+*.recipe
+*.dir/
+
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+*.vcxproj.user
+*.sln
+*.vcxproj
+*.xcodeproj/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env
+venv*/
+
+# Build / packaging
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+dist/
+
+# Caches
+.pytest_cache/
+.mypy_cache/
+.cache/
+.cache/pip/
+
+# Misc
+pyvenv.cfg
+.python-version
+.ipynb_checkpoints
+
+# Logs
+*.log
