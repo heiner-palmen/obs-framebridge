@@ -2,6 +2,12 @@
 
 > **A clean, first-class pixel bridge between OBS Studio scenes and Lua automation scripts.**
 
+<p align="center">
+  <img src="assets/icon.png" width="100" height="100">
+</p>
+
+<h1 align="center">OBS FrameBridge</h1>
+
 ---
 
 ## The Problem — and Why This Plugin Exists

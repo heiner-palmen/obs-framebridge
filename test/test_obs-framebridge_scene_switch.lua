@@ -97,7 +97,7 @@ function script_update(settings)
 end
 
 -- ------------------------------------------------------------------
--- Plugin probe helpers (borrowed from scripts in repo)
+-- Plugin probe helpers 
 -- ------------------------------------------------------------------
 local function fb_is_ready()
   local ph = obs.obs_get_proc_handler()
