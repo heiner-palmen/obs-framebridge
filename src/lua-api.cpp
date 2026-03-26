@@ -32,6 +32,16 @@
 static FrameCapture  *g_fc = nullptr;
 static ReferenceStore *g_rs = nullptr;
 
+static bool capture_available()
+{
+    return g_fc != nullptr;
+}
+
+static bool refs_available()
+{
+    return g_rs != nullptr;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Individual procedure implementations
 // ────────────────────────────────────────────────────────────────────────────
@@ -40,6 +50,14 @@ static ReferenceStore *g_rs = nullptr;
 //   → out int r, g, b, a   (-1 on error)
 static void proc_get_pixel(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available()) {
+        calldata_set_int(cd, "r", -1LL);
+        calldata_set_int(cd, "g", -1LL);
+        calldata_set_int(cd, "b", -1LL);
+        calldata_set_int(cd, "a", -1LL);
+        return;
+    }
+
     int x = (int)calldata_int(cd, "x");
     int y = (int)calldata_int(cd, "y");
 
@@ -56,6 +74,12 @@ static void proc_get_pixel(void * /*data*/, calldata_t *cd)
 //   → out int width, height
 static void proc_get_size(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available()) {
+        calldata_set_int(cd, "width", 0LL);
+        calldata_set_int(cd, "height", 0LL);
+        return;
+    }
+
     uint32_t w = 0, h = 0;
     g_fc->get_size(w, h);
     calldata_set_int(cd, "width",  (long long)w);
@@ -66,6 +90,13 @@ static void proc_get_size(void * /*data*/, calldata_t *cd)
 //   → out int r, g, b    (-1 on error)
 static void proc_avg_color(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available()) {
+        calldata_set_int(cd, "r", -1LL);
+        calldata_set_int(cd, "g", -1LL);
+        calldata_set_int(cd, "b", -1LL);
+        return;
+    }
+
     int x = (int)calldata_int(cd, "x");
     int y = (int)calldata_int(cd, "y");
     int w = (int)calldata_int(cd, "w");
@@ -85,6 +116,11 @@ static void proc_avg_color(void * /*data*/, calldata_t *cd)
 //   → out int matches   (1=yes, 0=no)
 static void proc_region_matches_color(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available()) {
+        calldata_set_int(cd, "matches", 0LL);
+        return;
+    }
+
     int x   = (int)calldata_int(cd, "x");
     int y   = (int)calldata_int(cd, "y");
     int w   = (int)calldata_int(cd, "w");
@@ -109,6 +145,11 @@ static void proc_region_matches_color(void * /*data*/, calldata_t *cd)
 //   → out float similarity   (0.0 … 1.0;  -1.0 on error)
 static void proc_compare_region(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available() || !refs_available()) {
+        calldata_set_float(cd, "similarity", -1.0);
+        return;
+    }
+
     int x = (int)calldata_int(cd, "x");
     int y = (int)calldata_int(cd, "y");
     int w = (int)calldata_int(cd, "w");
@@ -144,6 +185,11 @@ static void proc_compare_region(void * /*data*/, calldata_t *cd)
 //   → out int success   (1=ok, 0=fail)
 static void proc_load_reference(void * /*data*/, calldata_t *cd)
 {
+    if (!refs_available()) {
+        calldata_set_int(cd, "success", 0LL);
+        return;
+    }
+
     const char *id   = calldata_string(cd, "id");
     const char *path = calldata_string(cd, "path");
 
@@ -154,6 +200,8 @@ static void proc_load_reference(void * /*data*/, calldata_t *cd)
 // framebuffer_unload_reference(in string id)
 static void proc_unload_reference(void * /*data*/, calldata_t *cd)
 {
+    if (!refs_available()) return;
+
     const char *id = calldata_string(cd, "id");
     if (id) g_rs->unload(id);
 }
@@ -161,6 +209,8 @@ static void proc_unload_reference(void * /*data*/, calldata_t *cd)
 // framebuffer_set_source(in string source_name)
 static void proc_set_source(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available()) return;
+
     const char *name = calldata_string(cd, "source_name");
     g_fc->set_source_name(name ? name : "");
     blog(LOG_INFO, "[obs-framebridge] Capture source set to: '%s'",
@@ -170,6 +220,8 @@ static void proc_set_source(void * /*data*/, calldata_t *cd)
 // framebuffer_set_size(in int width, in int height)
 static void proc_set_size(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available()) return;
+
     int w = (int)calldata_int(cd, "width");
     int h = (int)calldata_int(cd, "height");
     if (w > 0 && h > 0) {
@@ -181,6 +233,8 @@ static void proc_set_size(void * /*data*/, calldata_t *cd)
 // framebuffer_set_enabled(in int enabled)   (1=on, 0=off)
 static void proc_set_enabled(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available()) return;
+
     bool en = calldata_int(cd, "enabled") != 0;
     g_fc->set_enabled(en);
     blog(LOG_INFO, "[obs-framebridge] Capture %s",
@@ -191,6 +245,11 @@ static void proc_set_enabled(void * /*data*/, calldata_t *cd)
 //   → out int ready   (1=yes, 0=no)
 static void proc_is_ready(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available()) {
+        calldata_set_int(cd, "ready", 0LL);
+        return;
+    }
+
     uint32_t w = 0, h = 0;
     bool rdy = g_fc->get_size(w, h);
     calldata_set_int(cd, "ready", rdy ? 1LL : 0LL);
@@ -205,6 +264,11 @@ static void proc_is_ready(void * /*data*/, calldata_t *cd)
 // the scene's own dimensions.
 static void proc_render_scene(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available()) {
+        calldata_set_int(cd, "success", 0LL);
+        return;
+    }
+
     const char *scene_name = calldata_string(cd, "scene_name");
     const char *path       = calldata_string(cd, "path");
     int w = (int)calldata_int(cd, "width");
@@ -231,6 +295,11 @@ static void proc_render_scene(void * /*data*/, calldata_t *cd)
 // The caller is responsible for ensuring the directory exists.
 static void proc_screenshot(void * /*data*/, calldata_t *cd)
 {
+    if (!capture_available()) {
+        calldata_set_int(cd, "success", 0LL);
+        return;
+    }
+
     const char *path = calldata_string(cd, "path");
     if (!path || path[0] == '\0') {
         calldata_set_int(cd, "success", 0LL);

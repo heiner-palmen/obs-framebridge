@@ -11,6 +11,8 @@
 #include <obs-module.h>
 #include <obs-frontend-api.h>
 
+#include <atomic>
+
 #include "frame-capture.hpp"
 #include "reference-image.hpp"
 #include "lua-api.hpp"
@@ -26,6 +28,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-framebridge", "en-US")
 
 static FrameCapture   *g_fc = nullptr;
 static ReferenceStore *g_rs = nullptr;
+static std::atomic_bool g_obs_finished_loading{false};
 
 // Settings key constants
 #define S_SOURCE_NAME  "source_name"
@@ -42,7 +45,9 @@ static void on_frontend_event(enum obs_frontend_event event, void *data);
 
 static void on_tick(void * /*data*/, float /*seconds*/)
 {
-    if (g_fc) g_fc->tick();
+    if (g_fc && g_obs_finished_loading.load(std::memory_order_acquire)) {
+        g_fc->tick();
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -52,6 +57,8 @@ static void on_tick(void * /*data*/, float /*seconds*/)
 bool obs_module_load(void)
 {
     blog(LOG_INFO, "[obs-framebridge] Loading v" PLUGIN_VERSION);
+
+    g_obs_finished_loading.store(false, std::memory_order_release);
 
     g_fc = new FrameCapture();
     g_rs = new ReferenceStore();
@@ -80,6 +87,8 @@ void obs_module_post_load(void)
 
 void obs_module_unload(void)
 {
+    g_obs_finished_loading.store(false, std::memory_order_release);
+
     obs_remove_tick_callback(on_tick, nullptr);
     obs_frontend_remove_event_callback(on_frontend_event, nullptr);
 
@@ -219,6 +228,7 @@ static void on_frontend_event(enum obs_frontend_event event, void * /*data*/)
 {
     switch (event) {
     case OBS_FRONTEND_EVENT_FINISHED_LOADING:
+        g_obs_finished_loading.store(true, std::memory_order_release);
         blog(LOG_INFO,
              "[obs-framebridge] OBS finished loading — "
              "plugin ready. Configure via Tools > obs-framebridge.");

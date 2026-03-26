@@ -49,6 +49,15 @@ void FrameCapture::set_enabled(bool enabled)
     enabled_ = enabled;
 }
 
+void FrameCapture::clear_ready_flag()
+{
+    std::lock_guard<std::mutex> lk(buf_mutex_);
+    buf_ready_ = false;
+    buf_width_ = 0;
+    buf_height_ = 0;
+    pixel_buf_.clear();
+}
+
 std::string FrameCapture::source_name() const
 {
     std::lock_guard<std::mutex> lk(cfg_mutex_);
@@ -206,6 +215,13 @@ void FrameCapture::ensure_resources(uint32_t w, uint32_t h)
     release_resources();
     texrender_    = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
     stagesurface_ = gs_stagesurface_create(w, h, GS_RGBA);
+    if (!texrender_ || !stagesurface_) {
+        blog(LOG_WARNING,
+             "[obs-framebridge] Failed to allocate capture resources for %ux%u",
+             w, h);
+        release_resources();
+        return;
+    }
     res_width_    = w;
     res_height_   = h;
 }
@@ -229,6 +245,8 @@ void FrameCapture::release_resources()
 void FrameCapture::map_staged_frame(uint32_t w, uint32_t h)
 {
     // Must be called from the graphics thread.
+    if (!stagesurface_) return;
+
     uint8_t  *gpu_data  = nullptr;
     uint32_t  linesize  = 0;
 
@@ -275,6 +293,7 @@ void FrameCapture::tick()
             release_resources();
             obs_leave_graphics();
         }
+        clear_ready_flag();
         return;
     }
 
@@ -284,6 +303,12 @@ void FrameCapture::tick()
     obs_enter_graphics();
 
     ensure_resources(cap_w, cap_h);
+    if (!texrender_ || !stagesurface_) {
+        obs_leave_graphics();
+        obs_source_release(source);
+        clear_ready_flag();
+        return;
+    }
 
     // ── Phase MAP: consume the staging surface staged in the previous tick ──
     if (phase_ == CapturePhase::STAGED) {
@@ -292,6 +317,7 @@ void FrameCapture::tick()
 
     // ── Phase RENDER: render source → texrender → stage for next tick ─────
     gs_texrender_reset(texrender_);
+    bool rendered = false;
 
     if (gs_texrender_begin(texrender_, cap_w, cap_h)) {
         struct vec4 bg;
@@ -313,12 +339,22 @@ void FrameCapture::tick()
         gs_blend_state_pop();
 
         gs_texrender_end(texrender_);
+        rendered = true;
     }
 
     // Stage the rendered texture so it can be mapped to CPU on the next tick
-    gs_stage_texture(stagesurface_,
-                     gs_texrender_get_texture(texrender_));
-    phase_ = CapturePhase::STAGED;
+    if (rendered) {
+        gs_texture_t *texture = gs_texrender_get_texture(texrender_);
+        if (texture) {
+            gs_stage_texture(stagesurface_, texture);
+            phase_ = CapturePhase::STAGED;
+        } else {
+            phase_ = CapturePhase::IDLE;
+            clear_ready_flag();
+        }
+    } else {
+        phase_ = CapturePhase::IDLE;
+    }
 
     obs_leave_graphics();
     obs_source_release(source);

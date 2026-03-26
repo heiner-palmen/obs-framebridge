@@ -94,4 +94,5 @@ private:
     void ensure_resources(uint32_t w, uint32_t h);
     void release_resources();
     void map_staged_frame(uint32_t w, uint32_t h);
+    void clear_ready_flag();
 };
