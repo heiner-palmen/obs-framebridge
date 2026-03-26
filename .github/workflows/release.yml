@@ -1,0 +1,187 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'   # triggers on v1.1, v1.2, etc.
+
+permissions:
+  contents: write
+
+jobs:
+
+  # ── Windows build ──────────────────────────────────────────────
+  build-windows:
+    name: Build (Windows x64)
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install OBS Studio
+        run: |
+          $version = (Get-Content buildspec.json | ConvertFrom-Json).dependencies.'obs-studio'.version
+          $installer = "OBS-Studio-${version}-Windows-x64-Installer.exe"
+          $url = "https://github.com/obsproject/obs-studio/releases/download/${version}/${installer}"
+          Write-Host "Downloading OBS Studio ${version}..."
+          Invoke-WebRequest -Uri $url -OutFile $installer
+          Write-Host "Installing silently..."
+          Start-Process -Wait -FilePath ".\$installer" -ArgumentList "/S"
+          Write-Host "OBS Studio ${version} installed to: $Env:ProgramFiles\obs-studio"
+        shell: pwsh
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_BUILD_TYPE=Release
+        shell: pwsh
+
+      - name: Build
+        run: cmake --build build --config Release
+        shell: pwsh
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${{ github.ref_name }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        shell: pwsh
+
+      - name: Package
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          $name = "obs-framebridge-win-x64-$ver"
+          New-Item -ItemType Directory -Path dist\$name\obs-plugins\64bit
+          New-Item -ItemType Directory -Path dist\$name\data\obs-plugins\obs-framebridge
+          Copy-Item build\Release\obs-framebridge.dll dist\$name\obs-plugins\64bit\
+          Copy-Item -Recurse data\locale dist\$name\data\obs-plugins\obs-framebridge\
+          Compress-Archive -Path dist\$name\* -DestinationPath dist\$name.zip
+          $hash = (Get-FileHash dist\$name.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $name.zip" | Out-File -Encoding ascii dist\$name.zip.sha256
+          echo "ASSET_NAME=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        id: package
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            dist/*.zip
+            dist/*.sha256
+
+  # ── Linux build ────────────────────────────────────────────────
+  build-linux:
+    name: Build (Linux x64)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y software-properties-common
+          sudo add-apt-repository -y ppa:obsproject/obs-studio
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake build-essential \
+            libobs-dev \
+            libgl1-mesa-dev \
+            libx11-dev
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package
+        run: |
+          VER="${{ github.ref_name }}"
+          VER="${VER#v}"
+          NAME="obs-framebridge-linux-x64-${VER}"
+          mkdir -p dist/${NAME}/obs-plugins/64bit
+          mkdir -p dist/${NAME}/data/obs-plugins/obs-framebridge
+          cp build/obs-framebridge.so dist/${NAME}/obs-plugins/64bit/
+          cp -r data/locale dist/${NAME}/data/obs-plugins/obs-framebridge/
+          cd dist
+          tar -czf ${NAME}.tar.gz ${NAME}
+          sha256sum ${NAME}.tar.gz > ${NAME}.tar.gz.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+
+  # ── Create GitHub Release ──────────────────────────────────────
+  release:
+    name: Create Release
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Get version
+        id: version
+        run: |
+          TAG="${{ github.ref_name }}"
+          VER="${TAG#v}"
+          echo "TAG=$TAG" >> $GITHUB_OUTPUT
+          echo "VER=$VER" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: |
+            ## OBS FrameBridge ${{ steps.version.outputs.TAG }}
+
+            ### Installation
+
+            **Windows:**
+            1. Download `obs-framebridge-win-x64-${{ steps.version.outputs.VER }}.zip`
+            2. Extract and copy `obs-plugins/64bit/obs-framebridge.dll` → `C:\Program Files\obs-studio\obs-plugins\64bit\`
+            3. Copy `data/obs-plugins/obs-framebridge/` → `C:\Program Files\obs-studio\data\obs-plugins\`
+            4. Restart OBS
+
+            **Linux:**
+            1. Download `obs-framebridge-linux-x64-${{ steps.version.outputs.VER }}.tar.gz`
+            2. Extract and copy `obs-plugins/64bit/obs-framebridge.so` → `/usr/lib/obs-plugins/`
+            3. Copy `data/obs-plugins/obs-framebridge/` → `/usr/share/obs/obs-plugins/`
+            4. Restart OBS
+
+            ### Requirements
+            - OBS Studio 32.0+
+            - Windows 10/11 x64 or Linux x64
+
+            ### Verify integrity
+            SHA256 checksums are provided as `.sha256` files alongside each download.
+
+            ### Links
+            - [Documentation & usage](https://github.com/heiner-palmen/obs-framebridge#readme)
+            - [Blog post](https://heiner-palmen.github.io/project/obs/lua/automation/2026/03/17/framebridge.html)
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.tar.gz
+            artifacts/**/*.sha256
+          draft: false
+          prerelease: false
