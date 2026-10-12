@@ -30,6 +30,13 @@ static FrameCapture   *g_fc = nullptr;
 static ReferenceStore *g_rs = nullptr;
 static std::atomic_bool g_obs_finished_loading{false};
 
+// Number of ticks to skip after FINISHED_LOADING before starting capture.
+// Gives the OBS render pipeline a few frames to finish initialising sources
+// before we call obs_source_video_render().  Prevents a segfault on OBS 30
+// where the first render call on a freshly-loaded source can crash.
+static std::atomic<int>  g_stable_ticks{0};
+static constexpr int     STABLE_TICKS_REQUIRED = 5;
+
 // Settings key constants
 #define S_SOURCE_NAME  "source_name"
 #define S_CAP_WIDTH    "cap_width"
@@ -45,9 +52,24 @@ static void on_frontend_event(enum obs_frontend_event event, void *data);
 
 static void on_tick(void * /*data*/, float /*seconds*/)
 {
-    if (g_fc && g_obs_finished_loading.load(std::memory_order_acquire)) {
-        g_fc->tick();
+    if (!g_fc || !g_obs_finished_loading.load(std::memory_order_acquire))
+        return;
+
+    // Defer the first real tick until STABLE_TICKS_REQUIRED frames have
+    // elapsed after FINISHED_LOADING.  This ensures obs_source_video_render()
+    // is never called while sources are still mid-initialisation.
+    int ticks = g_stable_ticks.fetch_add(1, std::memory_order_relaxed);
+    if (ticks < STABLE_TICKS_REQUIRED) {
+        if (ticks == 0)
+            blog(LOG_INFO,
+                 "[obs-framebridge] Deferring capture for %d warm-up ticks",
+                 STABLE_TICKS_REQUIRED);
+        return;
     }
+    if (ticks == STABLE_TICKS_REQUIRED)
+        blog(LOG_INFO, "[obs-framebridge] Warm-up complete — capture active");
+
+    g_fc->tick();
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -228,6 +250,7 @@ static void on_frontend_event(enum obs_frontend_event event, void * /*data*/)
 {
     switch (event) {
     case OBS_FRONTEND_EVENT_FINISHED_LOADING:
+        g_stable_ticks.store(0, std::memory_order_relaxed);
         g_obs_finished_loading.store(true, std::memory_order_release);
         blog(LOG_INFO,
              "[obs-framebridge] OBS finished loading — "

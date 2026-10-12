@@ -316,6 +316,22 @@ void FrameCapture::tick()
     }
 
     // ── Phase RENDER: render source → texrender → stage for next tick ─────
+
+    // Guard: if the source has not yet produced any output the OBS render
+    // pipeline for it is not fully initialised.  Calling
+    // obs_source_video_render() in that state can segfault on OBS 30.
+    uint32_t src_w = obs_source_get_width(source);
+    uint32_t src_h = obs_source_get_height(source);
+    if (src_w == 0 || src_h == 0) {
+        blog(LOG_DEBUG,
+             "[obs-framebridge] source '%s' not ready (0×0) — deferring render",
+             sname.c_str());
+        obs_leave_graphics();
+        obs_source_release(source);
+        clear_ready_flag();
+        return;
+    }
+
     gs_texrender_reset(texrender_);
     bool rendered = false;
 
@@ -325,11 +341,6 @@ void FrameCapture::tick()
         gs_clear(GS_CLEAR_COLOR, &bg, 0.0f, 0);
 
         // Orthographic projection that maps source pixels into cap_w × cap_h
-        uint32_t src_w = obs_source_get_width(source);
-        uint32_t src_h = obs_source_get_height(source);
-        if (src_w == 0) src_w = cap_w;
-        if (src_h == 0) src_h = cap_h;
-
         gs_ortho(0.0f, (float)src_w, 0.0f, (float)src_h, -100.0f, 100.0f);
         gs_set_viewport(0, 0, (int)cap_w, (int)cap_h);
 
